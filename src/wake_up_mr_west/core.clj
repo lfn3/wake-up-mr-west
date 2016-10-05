@@ -1,15 +1,14 @@
 (ns wake-up-mr-west.core
   (:require [aleph.http :as http]
-            [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.core.async :as a]
             [clj-uuid :as uuid]
             [manifold.deferred :as d]
-            [outpace.config :refer [defconfig]])
+            [outpace.config :refer [defconfig]]
+            [compojure.core :refer [POST defroutes]])
   (:gen-class)
   (:import (java.util Date)))
 
-(defonce srv (atom nil))
 (defonce state (atom {}))                                   ;TODO: replace this with a database
 
 (defconfig account-sid)
@@ -23,23 +22,30 @@
 (defn call-url [account]
   (str twilio-api-url "Accounts/" account "/Calls"))
 
+(defn get-words-for-id [id]
+  (-> @state
+      (get id)
+      :words))
+
 (defn say
   ([message]
     (say message "en-US"))
   ([message lang]
-   (str/join \n
+   (str/join \newline
              ["<?xml version=\"1.0\" encoding=\"UTF-8\" ?>"
               "<Response>"
-              (str "<Say voice=\"alice\" language=\"" lang "\"")
+              (str "<Say voice=\"alice\" language=\"" lang "\">")
               message
               "</Say>"
               "</Response>"])))
 
-;TODO for real routing.
-(defn handler [req]
-  {:status 200
-   :headers {"content-type" "application/xml"}
-   :body (say "Wake up Mr. West")})
+(defroutes app-routes
+  (POST "/twilio/:id" [id]
+    (let [id (clj-uuid/as-uuid id)]
+      (swap! state update-in [id :done] not)
+      {:status 200
+       :headers {"content-type" "application/xml"}
+       :body (say (get-words-for-id id))})))
 
 (defn build-twilio-url [id]
   (str host "/twilio/" id))
@@ -88,11 +94,6 @@
 (defn stash [data]
   (swap! state assoc (:id data) data))
 
-(defn get-words-for-id [id]
-  (-> @state
-      (get id)
-      :words))
-
 (defn add [^Date date ^String words ^String number]
   (let [data {:id (uuid/v1)
               :time date
@@ -102,16 +103,17 @@
     (stash data)
     (go-delayed-call data)))
 
+(defn wait-for [atom fn]
+  (a/go-loop [now @atom]
+    (a/<! (a/timeout 10000))
+    (when-not (fn now)
+      (recur @atom))))
+
 (defn -main
   "Start a phone call"
   [& args]
-  (add (Date.) "Wake up mr. west" to)
-  #_(-> @(http/post (call-url account-sid) {:basic-auth (str account-sid ":" auth-token)
-                                          :form-params {:From from
-                                                        :To to
-                                                        :Url "http://10e32fff.ngrok.io"}})
-      :body
-      (io/reader)
-      (slurp)
-      (println))
-  (reset! srv (http/start-server handler {:port port})))
+  (with-open [_ (http/start-server app-routes {:port port})]
+    (add (Date.) "Wake up mr. west" to)
+    (a/<!! (wait-for state #(->> %1
+                                 (vals)
+                                 (every? :done))))))
