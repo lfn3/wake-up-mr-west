@@ -1,0 +1,8 @@
+{
+wake-up-mr-west.core/account-sid                            ;twilio account sid
+wake-up-mr-west.core/auth-token                             ;twilio auth token
+wake-up-mr-west.core/twilio-api-url "https://api.twilio.com/2010-04-01/" ;Probably you can leave this one alone
+wake-up-mr-west.core/from                                   ;Number you're calling from
+wake-up-mr-west.core/host                                   ;Try ngrok for local dev
+wake-up-mr-west.core/port 8080
+}
