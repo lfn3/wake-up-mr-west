@@ -3,8 +3,14 @@
             [clojure.core.async :as a]
             [clj-uuid :as uuid]
             [outpace.config :refer [defconfig]]
-            [compojure.core :refer [POST defroutes]]
-            [wake-up-mr-west.twilio :as twil])
+            [compojure.core :refer [GET POST defroutes]]
+            [wake-up-mr-west.twilio :as twil]
+            [hiccup.core :as hic]
+            [hiccup.page :refer [doctype]]
+            [hiccup.form :as form]
+            [compojure.route :refer [resources not-found]]
+            [ring.middleware.keyword-params :refer [wrap-keyword-params]]
+            [ring.middleware.params :refer [wrap-params]])
   (:gen-class)
   (:import (java.util Date)))
 
@@ -17,14 +23,6 @@
   (-> @state
       (get id)
       :words))
-
-(defroutes app-routes
-  (POST "/twilio/:id" [id]
-    (let [id (clj-uuid/as-uuid id)]
-      (swap! state update-in [id :done] not)
-      {:status 200
-       :headers {"content-type" "application/xml"}
-       :body (twil/say (get-words-for-id id))})))
 
 (defn datetime->timeout [^Date date]
   (a/timeout (- (.getTime date) (System/currentTimeMillis))))
@@ -46,7 +44,7 @@
                           (catch Exception e#
                             e#))]
          (if (and (instance? Exception result#)
-                    (< counter# ~retries))
+                  (< counter# ~retries))
            (recur (inc counter#))
            result#)))))
 
@@ -75,11 +73,44 @@
     (when-not (fn now)
       (recur @atom))))
 
+;TODO clean out common html, move to another ns?
+(defroutes app-routes
+  (GET "/" []
+    {:status 200
+     :headers {"content-type" "text/html"}
+     :body (hic/html
+             (doctype :html5)
+             [:html
+              [:body
+               [:h1 "Wake up mr. west"]
+               (form/form-to [:post "/make-call/"]
+                 (form/label "to-number" "Number to call")
+                 (form/text-field {:type "tel"} "to-number"))]])})
+  (POST "/make-call/" [to-number]
+    (add (Date.) "Wake up mr. west" to-number)
+    {:status 200
+     :headers {"content-type" "text/html"}
+     :body (hic/html (doctype :html5)
+                     [:html
+                      [:head
+                       [:link {:rel "shortcut icon" :href "http://lfn3.net/assets/favicon.ico"}]]
+                      [:body [:p (str "Calling " to-number)]]])})
+  (POST "/twilio/:id" [id]
+    (let [id (clj-uuid/as-uuid id)]
+      (swap! state update-in [id :done] not)
+      {:status 200
+       :headers {"content-type" "application/xml"}
+       :body (twil/say (get-words-for-id id))}))
+  (resources "/")
+  (not-found "Sorry"))
+
+(defonce srv (atom nil))
+
 (defn -main
   "Start a phone call"
   [& args]
-  (with-open [_ (http/start-server app-routes {:port port})]
-    (add (Date.) "Wake up mr. west" to)
-    (a/<!! (wait-for state #(->> %1
-                                 (vals)
-                                 (every? :done))))))
+  (reset! srv (http/start-server (wrap-params (wrap-keyword-params app-routes)) {:port port}))
+  (comment (add (Date.) "Wake up mr. west" to)
+           (a/<!! (wait-for state #(->> %1
+                                        (vals)
+                                        (every? :done))))))
