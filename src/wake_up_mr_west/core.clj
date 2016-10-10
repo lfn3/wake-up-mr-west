@@ -73,30 +73,32 @@
     (when-not (fn now)
       (recur @atom))))
 
-
-;TODO clean out common html, move to another ns?
-(defroutes app-routes
-  (GET "/" []
+;TODO move to another ns?
+(defn html-response [headers & body]
+  (let [body (if-not (map? headers)                         ;TODO: tidy this up, it's kinda gross.
+               (cons headers body)
+               body)
+        headers (if (map? headers)
+                  (merge {"content-type" "text/html"} headers)
+                  {"content-type" "text/html"})]
     {:status 200
-     :headers {"content-type" "text/html"}
+     :headers headers
      :body (hic/html
              (doctype :html5)
              [:html
-              [:body
-               [:h1 "Wake up mr. west"]
-               (form/form-to [:post "/make-call/"]
-                 (form/label "to-number" "Number to call")
-                 (form/text-field {:type "tel"} "to-number"))]])})
+              [:body body]])}))
+
+(defroutes app-routes
+  (GET "/" []
+    (html-response
+      [:h1 "Wake up mr. west"]
+      (form/form-to [:post "/make-call/"]
+        (form/label "to-number" "Number to call")
+        (form/text-field {:type "tel"} "to-number"))))
   (POST "/make-call/" [to-number]
     (add (Date.) "Wake up mr. west" to-number)
-    {:status 200
-     :headers {"content-type" "text/html"}
-     :body (hic/html (doctype :html5)
-                     [:html
-                      [:head
-                       [:link {:rel "shortcut icon" :href "http://lfn3.net/assets/favicon.ico"}]]
-                      [:body [:p (str "Calling " to-number)]]])})
-  (POST "/twilio/:id" [id]
+    (html-response [:p (str "Calling " to-number)]))
+  (POST "/twilio/:id" [id]                                  ;TODO move this into the twilio ns?
     (let [id (clj-uuid/as-uuid id)]
       (swap! state update-in [id :done] not)
       {:status 200
