@@ -73,6 +73,7 @@
     (when-not (fn now)
       (recur @atom))))
 
+
 ;TODO clean out common html, move to another ns?
 (defroutes app-routes
   (GET "/" []
@@ -104,6 +105,7 @@
   (resources "/")
   (not-found "Sorry"))
 
+;TODO use mount?
 (defonce srv (atom nil))
 
 (defn -main
